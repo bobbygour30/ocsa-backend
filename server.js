@@ -23,11 +23,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://ocsa-frontend.vercel.app', // Replace with your frontend Vercel URL
-  'https://ocsa-frontend-git-main.vercel.app', // Replace with your frontend Vercel URL
-  'https://ocsa-frontend.vercel.app', // Add your actual frontend domain
-  'https://www.ocsa.com', // Add your production domain
-  '*' // Be careful with this in production
+  'https://ocsa-weld.vercel.app', // Replace with your frontend Vercel URL
 ];
 
 app.use(cors({
