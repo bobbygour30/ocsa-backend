@@ -30,72 +30,67 @@ const UserSchema = new mongoose.Schema({
     default: 'user',
   },
   
-  // Vendor specific fields
-  businessName: {
-    type: String,
-    trim: true,
-  },
-  businessType: {
-    type: String,
-    enum: ['repair', 'auto', 'beauty', 'restaurant', 'delivery', 'professional'],
-  },
-  businessAddress: {
-    street: String,
-    city: String,
-    state: String,
-    pincode: String,
-  },
-  gstNumber: {
-    type: String,
-  },
-  panNumber: {
-    type: String,
-  },
-  serviceAreas: [{
-    type: String,
-  }],
-  isVerified: {
-    type: Boolean,
-    default: false,
-  },
-  
-  // Franchiser specific fields
-  franchiseName: {
-    type: String,
-  },
-  franchiseRegion: {
-    type: String,
-  },
-  franchiseCode: {
-    type: String,
-    unique: true,
-    sparse: true,
-  },
-  assignedVendors: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  }],
-  
   // Admin specific fields
   adminLevel: {
     type: String,
     enum: ['super', 'regional', 'support'],
+    default: 'support',
+  },
+  department: {
+    type: String,
+    enum: ['management', 'operations', 'finance', 'support', 'technical'],
+    default: 'support',
   },
   permissions: [{
     type: String,
+    enum: ['manage_users', 'manage_vendors', 'manage_franchisers', 'manage_services', 'manage_categories', 'view_reports', 'manage_settings', 'manage_admins'],
   }],
   
-  // Common fields
+  // Employee details
+  employeeId: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
+  designation: {
+    type: String,
+  },
+  joiningDate: {
+    type: Date,
+  },
+  
+  // Address
+  address: {
+    street: String,
+    city: String,
+    state: String,
+    pincode: String,
+    country: String,
+  },
+  
+  // Profile
   profileImage: {
     type: String,
     default: '',
   },
+  
+  // Status
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  lastLogin: {
+    type: Date,
+  },
+  
+  // Reset OTP
   resetOTP: {
     type: String,
   },
   resetOTPExpire: {
     type: Date,
   },
+  
   createdAt: {
     type: Date,
     default: Date.now,
@@ -127,10 +122,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Generate franchise code for franchisers
+// Generate employee ID for admins
 UserSchema.pre('save', async function (next) {
-  if (this.role === 'franchiser' && !this.franchiseCode) {
-    this.franchiseCode = 'FRAN' + Math.floor(100000 + Math.random() * 900000).toString();
+  if (this.role === 'admin' && !this.employeeId) {
+    const year = new Date().getFullYear().toString().slice(-2);
+    const count = await mongoose.model('User').countDocuments({ role: 'admin' }) + 1;
+    this.employeeId = `ADM${year}${count.toString().padStart(4, '0')}`;
   }
   next();
 });

@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Vendor = require('../models/Vendor');
 const Franchiser = require('../models/Franchiser');
 const Admin = require('../models/Admin');
+const Booking = require('../models/Booking');
 const jwt = require('jsonwebtoken');
 const createTransporter = require('../config/emailConfig');
 
@@ -42,7 +43,7 @@ const register = async (req, res) => {
     
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    res.status(201).json({ 
+    return res.status(201).json({ 
       msg: 'User registered successfully',
       token,
       user: {
@@ -55,7 +56,7 @@ const register = async (req, res) => {
     });
   } catch (err) {
     console.error('Registration error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -86,6 +87,16 @@ const registerVendor = async (req, res) => {
       }
     }
 
+    // Parse businessAddress if it's a string
+    let parsedAddress = businessAddress;
+    if (typeof businessAddress === 'string') {
+      try {
+        parsedAddress = JSON.parse(businessAddress);
+      } catch (e) {
+        parsedAddress = {};
+      }
+    }
+
     // Create new vendor user
     const user = new User({
       username,
@@ -95,10 +106,10 @@ const registerVendor = async (req, res) => {
       role: 'vendor',
       businessName,
       businessType,
-      businessAddress,
+      businessAddress: parsedAddress,
       gstNumber,
       panNumber,
-      serviceAreas: serviceAreas ? serviceAreas.split(',') : [],
+      serviceAreas: serviceAreas ? (typeof serviceAreas === 'string' ? serviceAreas.split(',') : serviceAreas) : [],
       isVerified: false,
     });
 
@@ -122,7 +133,7 @@ const registerVendor = async (req, res) => {
     
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    res.status(201).json({ 
+    return res.status(201).json({ 
       msg: 'Vendor registered successfully. Please wait for verification.',
       token,
       user: {
@@ -137,7 +148,7 @@ const registerVendor = async (req, res) => {
     });
   } catch (err) {
     console.error('Vendor registration error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -165,6 +176,16 @@ const registerFranchiser = async (req, res) => {
       }
     }
 
+    // Parse territories if it's a string
+    let parsedTerritories = [];
+    if (territories) {
+      try {
+        parsedTerritories = typeof territories === 'string' ? JSON.parse(territories) : territories;
+      } catch (e) {
+        parsedTerritories = [];
+      }
+    }
+
     // Create new franchiser user
     const user = new User({
       username,
@@ -182,7 +203,7 @@ const registerFranchiser = async (req, res) => {
     const franchiser = new Franchiser({
       userId: user._id,
       region: franchiseRegion,
-      territories: territories ? JSON.parse(territories) : [],
+      territories: parsedTerritories,
     });
 
     await franchiser.save();
@@ -198,7 +219,7 @@ const registerFranchiser = async (req, res) => {
     
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    res.status(201).json({ 
+    return res.status(201).json({ 
       msg: 'Franchiser registered successfully',
       token,
       user: {
@@ -213,7 +234,7 @@ const registerFranchiser = async (req, res) => {
     });
   } catch (err) {
     console.error('Franchiser registration error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -230,7 +251,7 @@ const registerAdmin = async (req, res) => {
 
   try {
     // Check if requesting user is super admin
-    if (req.user.role !== 'admin' || req.user.adminLevel !== 'super') {
+    if (!req.user || req.user.role !== 'admin' || req.user.adminLevel !== 'super') {
       return res.status(403).json({ msg: 'Not authorized to create admin' });
     }
 
@@ -252,7 +273,7 @@ const registerAdmin = async (req, res) => {
       mobile,
       password,
       role: 'admin',
-      adminLevel,
+      adminLevel: adminLevel || 'support',
     });
 
     await user.save();
@@ -260,13 +281,13 @@ const registerAdmin = async (req, res) => {
     // Create admin profile
     const admin = new Admin({
       userId: user._id,
-      department,
+      department: department || 'support',
       permissions: [],
     });
 
     await admin.save();
 
-    res.status(201).json({ 
+    return res.status(201).json({ 
       msg: 'Admin created successfully',
       user: {
         id: user._id,
@@ -279,7 +300,7 @@ const registerAdmin = async (req, res) => {
     });
   } catch (err) {
     console.error('Admin registration error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -304,6 +325,15 @@ const login = async (req, res) => {
     if (user.role === 'vendor' && !user.isVerified) {
       return res.status(403).json({ msg: 'Your account is pending verification' });
     }
+
+    // Check if user is active
+    if (user.isActive === false) {
+      return res.status(403).json({ msg: 'Your account has been deactivated' });
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
 
     // Generate token with role information
     const payload = { 
@@ -346,16 +376,19 @@ const login = async (req, res) => {
       userResponse.franchiseRegion = user.franchiseRegion;
     } else if (user.role === 'admin') {
       userResponse.adminLevel = user.adminLevel;
+      userResponse.department = user.department;
+      userResponse.designation = user.designation;
+      userResponse.employeeId = user.employeeId;
     }
 
-    res.json({ 
+    return res.json({ 
       msg: 'Login successful',
       token,
       user: userResponse
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -383,22 +416,23 @@ const getDashboard = async (req, res) => {
         const vendor = await Vendor.findOne({ userId: user._id });
         const bookings = await Booking.find({ 'vendor.vendorId': user._id })
           .sort({ createdAt: -1 })
-          .limit(10);
+          .limit(10)
+          .catch(() => []); // Handle if Booking model doesn't exist
         
         dashboardData = {
           ...dashboardData,
-          vendor: vendor,
-          recentBookings: bookings,
+          vendor: vendor || {},
+          recentBookings: bookings || [],
           stats: {
-            totalBookings: await Booking.countDocuments({ 'vendor.vendorId': user._id }),
+            totalBookings: await Booking.countDocuments({ 'vendor.vendorId': user._id }).catch(() => 0),
             completedBookings: await Booking.countDocuments({ 
               'vendor.vendorId': user._id, 
               status: 'completed' 
-            }),
+            }).catch(() => 0),
             pendingBookings: await Booking.countDocuments({ 
               'vendor.vendorId': user._id, 
               status: 'pending' 
-            }),
+            }).catch(() => 0),
             totalEarnings: vendor?.earnings?.total || 0,
           }
         };
@@ -412,8 +446,8 @@ const getDashboard = async (req, res) => {
         
         dashboardData = {
           ...dashboardData,
-          franchiser: franchiser,
-          vendors: assignedVendors,
+          franchiser: franchiser || {},
+          vendors: assignedVendors || [],
           stats: {
             totalVendors: assignedVendors.length,
             activeVendors: assignedVendors.filter(v => v.isVerified).length,
@@ -427,20 +461,21 @@ const getDashboard = async (req, res) => {
         
         dashboardData = {
           ...dashboardData,
-          admin: admin,
+          admin: admin || {},
           stats: {
             totalUsers: await User.countDocuments({ role: 'user' }),
             totalVendors: await User.countDocuments({ role: 'vendor' }),
             totalFranchisers: await User.countDocuments({ role: 'franchiser' }),
+            totalAdmins: await User.countDocuments({ role: 'admin' }),
             pendingVerifications: await User.countDocuments({ 
               role: 'vendor', 
               isVerified: false 
             }),
-            totalBookings: await Booking.countDocuments(),
+            totalBookings: await Booking.countDocuments().catch(() => 0),
             totalRevenue: await Booking.aggregate([
               { $match: { 'payment.status': 'paid' } },
               { $group: { _id: null, total: { $sum: '$payment.amount' } } }
-            ]),
+            ]).catch(() => [{ total: 0 }]),
           }
         };
         break;
@@ -448,30 +483,31 @@ const getDashboard = async (req, res) => {
       default: // regular user
         const userBookings = await Booking.find({ 'user.userId': user._id })
           .sort({ createdAt: -1 })
-          .limit(10);
+          .limit(10)
+          .catch(() => []);
         
         dashboardData = {
           ...dashboardData,
-          recentBookings: userBookings,
+          recentBookings: userBookings || [],
           stats: {
-            totalBookings: await Booking.countDocuments({ 'user.userId': user._id }),
+            totalBookings: await Booking.countDocuments({ 'user.userId': user._id }).catch(() => 0),
             completedBookings: await Booking.countDocuments({ 
               'user.userId': user._id, 
               status: 'completed' 
-            }),
+            }).catch(() => 0),
             upcomingBookings: await Booking.countDocuments({ 
               'user.userId': user._id, 
               status: 'confirmed',
               'schedule.date': { $gte: new Date() }
-            }),
+            }).catch(() => 0),
           }
         };
     }
 
-    res.json(dashboardData);
+    return res.json(dashboardData);
   } catch (err) {
     console.error('Get dashboard error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -512,10 +548,10 @@ const forgotPassword = async (req, res) => {
       `,
     });
 
-    res.json({ msg: 'OTP sent to your email' });
+    return res.json({ msg: 'OTP sent to your email' });
   } catch (err) {
     console.error('Forgot password error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -539,10 +575,10 @@ const resetPassword = async (req, res) => {
     user.resetOTPExpire = undefined;
     await user.save();
 
-    res.json({ msg: 'Password updated successfully' });
+    return res.json({ msg: 'Password updated successfully' });
   } catch (err) {
     console.error('Reset password error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -582,6 +618,9 @@ const getMe = async (req, res) => {
       }
     } else if (user.role === 'admin') {
       userResponse.adminLevel = user.adminLevel;
+      userResponse.department = user.department;
+      userResponse.designation = user.designation;
+      userResponse.employeeId = user.employeeId;
       
       const admin = await Admin.findOne({ userId: user._id });
       if (admin) {
@@ -589,10 +628,10 @@ const getMe = async (req, res) => {
       }
     }
 
-    res.json(userResponse);
+    return res.json(userResponse);
   } catch (err) {
     console.error('Get profile error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -602,10 +641,10 @@ const getVendors = async (req, res) => {
     const vendors = await User.find({ role: 'vendor' })
       .select('-password -resetOTP -resetOTPExpire');
     
-    res.json(vendors);
+    return res.json(vendors);
   } catch (err) {
     console.error('Get vendors error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
@@ -622,10 +661,10 @@ const verifyVendor = async (req, res) => {
     vendor.isVerified = true;
     await vendor.save();
 
-    res.json({ msg: 'Vendor verified successfully' });
+    return res.json({ msg: 'Vendor verified successfully' });
   } catch (err) {
     console.error('Verify vendor error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 

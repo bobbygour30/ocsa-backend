@@ -1,16 +1,37 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
+const cloudinary = require('cloudinary').v2;
+const { createInitialAdmin } = require('./controllers/adminController');
 
 // Load env vars
 dotenv.config();
 
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 // Connect to database
 connectDB();
 
+// Initialize admin after database connection
+setTimeout(async () => {
+  try {
+    await createInitialAdmin();
+  } catch (error) {
+    console.error('Error creating initial admin:', error);
+  }
+}, 2000);
+
 // Route files
 const authRoutes = require('./routes/authRoutes');
+const serviceRoutes = require('./routes/serviceRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
@@ -18,28 +39,9 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Enhanced CORS configuration for Vercel
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'https://ocsa-weld.vercel.app', // Replace with your frontend Vercel URL
-];
-
+// Simple CORS configuration - allow all origins for development
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, etc)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf('*') !== -1) {
-      callback(null, true);
-    } else if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  credentials: true,
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
@@ -53,15 +55,14 @@ app.get('/', (req, res) => {
     status: 'success',
     message: 'OCSA API is working!',
     version: '1.0.0',
+    adminCredentials: {
+      email: 'admin@ocsa.com',
+      password: 'admin123'
+    },
     endpoints: {
-      register: '/api/auth/register',
-      login: '/api/auth/login',
-      vendorRegister: '/api/auth/register-vendor',
-      franchiserRegister: '/api/auth/register-franchiser',
-      forgotPassword: '/api/auth/forgot-password',
-      resetPassword: '/api/auth/reset-password',
-      dashboard: '/api/auth/dashboard',
-      me: '/api/auth/me'
+      auth: '/api/auth',
+      services: '/api/services',
+      admin: '/api/admin'
     },
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
@@ -70,16 +71,27 @@ app.get('/', (req, res) => {
 
 // API Health check
 app.get('/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatus = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+
   res.status(200).json({
     status: 'healthy',
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    database: dbStatus[dbState] || 'unknown',
     uptime: process.uptime(),
+    memory: process.memoryUsage(),
     timestamp: new Date().toISOString()
   });
 });
 
 // Mount routers
 app.use('/api/auth', authRoutes);
+app.use('/api/services', serviceRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -91,9 +103,13 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Error stack:', err.stack);
+  console.error('Error:', err.message);
   
-  // Handle specific errors
+  // Check if headers already sent
+  if (res.headersSent) {
+    return next(err);
+  }
+  
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       msg: 'Validation Error',
@@ -113,6 +129,13 @@ app.use((err, req, res, next) => {
     });
   }
 
+  if (err.code === 11000) {
+    return res.status(400).json({
+      msg: 'Duplicate key error',
+      field: Object.keys(err.keyPattern)[0]
+    });
+  }
+
   res.status(err.status || 500).json({
     msg: err.message || 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.stack : undefined
@@ -126,8 +149,10 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`Server running on port ${PORT}`);
     console.log(`API Status: http://localhost:${PORT}`);
     console.log(`Health Check: http://localhost:${PORT}/health`);
+    console.log(`Auth Routes: http://localhost:${PORT}/api/auth`);
+    console.log(`Service Routes: http://localhost:${PORT}/api/services`);
+    console.log(`Admin Routes: http://localhost:${PORT}/api/admin`);
   });
 }
 
-// Export for Vercel
 module.exports = app;

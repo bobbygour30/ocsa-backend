@@ -27,6 +27,14 @@ const admin = (req, res, next) => {
   }
 };
 
+const superAdmin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin' && req.user.adminLevel === 'super') {
+    next();
+  } else {
+    return res.status(403).json({ msg: 'Not authorized as super admin' });
+  }
+};
+
 const vendor = (req, res, next) => {
   if (req.user && req.user.role === 'vendor') {
     next();
@@ -43,4 +51,4 @@ const franchiser = (req, res, next) => {
   }
 };
 
-module.exports = { protect, admin, vendor, franchiser };
+module.exports = { protect, admin, superAdmin, vendor, franchiser };
