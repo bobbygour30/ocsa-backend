@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const cloudinary = require('cloudinary').v2;
 const { createInitialAdmin } = require('./controllers/adminController');
+const multer = require('multer');
 
 // Load env vars
 dotenv.config();
@@ -32,14 +33,19 @@ setTimeout(async () => {
 const authRoutes = require('./routes/authRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const cartRoutes = require('./routes/cartRoutes');
 
 const app = express();
+
+// Configure multer for memory storage (for file uploads)
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 // Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Simple CORS configuration - allow all origins for development
+// Simple CORS configuration
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -88,16 +94,23 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Mount routers
+// Mount routers - IMPORTANT: Order matters
 app.use('/api/auth', authRoutes);
-app.use('/api/services', serviceRoutes);
+app.use('/api/services', serviceRoutes);  // This is correct
 app.use('/api/admin', adminRoutes);
+
+// Also mount at root level for backward compatibility
+app.use('/services', serviceRoutes);
+app.use('/categories', serviceRoutes);
+app.use('/category', serviceRoutes);
+app.use('/api/cart', cartRoutes);
 
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
     msg: 'Route not found',
-    path: req.originalUrl
+    path: req.originalUrl,
+    method: req.method
   });
 });
 
@@ -105,7 +118,6 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
   
-  // Check if headers already sent
   if (res.headersSent) {
     return next(err);
   }

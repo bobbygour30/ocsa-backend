@@ -1,9 +1,30 @@
-const Service = require('../models/Service');
-const Category = require('../models/Category');
+const mongoose = require('mongoose');
 const cloudinary = require('cloudinary').v2;
+
+// Import models with error checking
+let Service, Category;
+
+try {
+  Service = require('../models/Service');
+  Category = require('../models/Category');
+  console.log('✅ Service and Category models loaded successfully');
+} catch (error) {
+  console.error('❌ Error loading models:', error);
+}
 
 // Create a new service
 const createService = async (req, res) => {
+  console.log('Create service request received');
+  console.log('Request body:', req.body);
+  console.log('Request files:', req.files ? req.files.length : 0);
+  console.log('User:', req.user ? req.user.id : 'No user');
+
+  // Check if Service model is available
+  if (!Service) {
+    console.error('Service model is not available');
+    return res.status(500).json({ msg: 'Service model not initialized' });
+  }
+
   try {
     const {
       title,
@@ -20,37 +41,55 @@ const createService = async (req, res) => {
       tags,
     } = req.body;
 
+    // Validate required fields
+    if (!title || !description || !price || !category) {
+      return res.status(400).json({ 
+        msg: 'Missing required fields: title, description, price, category are required' 
+      });
+    }
+
     // Parse features if sent as string
-    let parsedFeatures = features;
-    if (typeof features === 'string') {
+    let parsedFeatures = [];
+    if (features) {
       try {
-        parsedFeatures = JSON.parse(features);
+        parsedFeatures = typeof features === 'string' ? JSON.parse(features) : features;
       } catch (e) {
+        console.error('Error parsing features:', e);
         parsedFeatures = [];
       }
     }
 
     // Parse tags if sent as string
-    let parsedTags = tags;
-    if (typeof tags === 'string') {
-      parsedTags = tags.split(',').map(tag => tag.trim());
+    let parsedTags = [];
+    if (tags) {
+      parsedTags = typeof tags === 'string' ? tags.split(',').map(tag => tag.trim()) : tags;
     }
 
-    const service = new Service({
+    // Parse boolean values
+    const isAvailableBool = isAvailable === 'true' || isAvailable === true;
+    const isPopularBool = isPopular === 'true' || isPopular === true;
+    const isFeaturedBool = isFeatured === 'true' || isFeatured === true;
+
+    // Create service instance
+    const serviceData = {
       title,
       description,
       price,
-      originalPrice,
+      originalPrice: originalPrice || '',
       category,
-      subCategory,
-      features: parsedFeatures || [],
-      duration,
-      isAvailable: isAvailable === 'true' || isAvailable === true,
-      isPopular: isPopular === 'true' || isPopular === true,
-      isFeatured: isFeatured === 'true' || isFeatured === true,
-      tags: parsedTags || [],
-      createdBy: req.user.id,
-    });
+      subCategory: subCategory || '',
+      features: parsedFeatures,
+      duration: duration || '',
+      isAvailable: isAvailableBool,
+      isPopular: isPopularBool,
+      isFeatured: isFeaturedBool,
+      tags: parsedTags,
+      createdBy: req.user ? req.user.id : null,
+    };
+
+    console.log('Creating service with data:', serviceData);
+
+    const service = new Service(serviceData);
 
     // Handle image uploads to Cloudinary
     if (req.files && req.files.length > 0) {
@@ -76,13 +115,13 @@ const createService = async (req, res) => {
           images.push({
             url: imageResult.secure_url,
             publicId: imageResult.public_id,
-            isPrimary: i === 0, // First image is primary
+            isPrimary: i === 0,
           });
 
           console.log(`Image ${i + 1} uploaded:`, imageResult.secure_url);
         } catch (uploadError) {
           console.error('Image upload error:', uploadError);
-          return res.status(500).json({ msg: 'Failed to upload image' });
+          return res.status(500).json({ msg: 'Failed to upload image: ' + uploadError.message });
         }
       }
 
@@ -91,19 +130,23 @@ const createService = async (req, res) => {
 
     await service.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       msg: 'Service created successfully',
       service,
     });
   } catch (err) {
     console.error('Create service error:', err);
-    res.status(500).json({ msg: 'Server error', error: err.message });
+    return res.status(500).json({ msg: 'Server error', error: err.message });
   }
 };
 
 // Get all services
 const getServices = async (req, res) => {
   try {
+    if (!Service) {
+      return res.status(500).json({ msg: 'Service model not initialized' });
+    }
+
     const { category, isPopular, isFeatured, limit, page = 1 } = req.query;
     
     let query = {};
@@ -130,7 +173,7 @@ const getServices = async (req, res) => {
 
     const total = await Service.countDocuments(query);
 
-    res.json({
+    return res.json({
       services,
       total,
       page: parseInt(page),
@@ -138,29 +181,37 @@ const getServices = async (req, res) => {
     });
   } catch (err) {
     console.error('Get services error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Get service by ID
 const getServiceById = async (req, res) => {
   try {
+    if (!Service) {
+      return res.status(500).json({ msg: 'Service model not initialized' });
+    }
+
     const service = await Service.findById(req.params.id);
     
     if (!service) {
       return res.status(404).json({ msg: 'Service not found' });
     }
 
-    res.json(service);
+    return res.json(service);
   } catch (err) {
     console.error('Get service error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Get services by category
 const getServicesByCategory = async (req, res) => {
   try {
+    if (!Service) {
+      return res.status(500).json({ msg: 'Service model not initialized' });
+    }
+
     const { category } = req.params;
     
     const services = await Service.find({ 
@@ -168,16 +219,20 @@ const getServicesByCategory = async (req, res) => {
       isAvailable: true 
     }).sort({ isPopular: -1, createdAt: -1 });
 
-    res.json(services);
+    return res.json(services);
   } catch (err) {
     console.error('Get services by category error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Update service
 const updateService = async (req, res) => {
   try {
+    if (!Service) {
+      return res.status(500).json({ msg: 'Service model not initialized' });
+    }
+
     const service = await Service.findById(req.params.id);
     
     if (!service) {
@@ -213,24 +268,16 @@ const updateService = async (req, res) => {
     
     // Parse features if sent as string
     if (features) {
-      if (typeof features === 'string') {
-        try {
-          service.features = JSON.parse(features);
-        } catch (e) {
-          service.features = [];
-        }
-      } else {
-        service.features = features;
+      try {
+        service.features = typeof features === 'string' ? JSON.parse(features) : features;
+      } catch (e) {
+        service.features = [];
       }
     }
     
     // Parse tags if sent as string
     if (tags) {
-      if (typeof tags === 'string') {
-        service.tags = tags.split(',').map(tag => tag.trim());
-      } else {
-        service.tags = tags;
-      }
+      service.tags = typeof tags === 'string' ? tags.split(',').map(tag => tag.trim()) : tags;
     }
 
     // Handle new image uploads
@@ -282,19 +329,23 @@ const updateService = async (req, res) => {
 
     await service.save();
 
-    res.json({
+    return res.json({
       msg: 'Service updated successfully',
       service,
     });
   } catch (err) {
     console.error('Update service error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Delete service
 const deleteService = async (req, res) => {
   try {
+    if (!Service) {
+      return res.status(500).json({ msg: 'Service model not initialized' });
+    }
+
     const service = await Service.findById(req.params.id);
     
     if (!service) {
@@ -314,18 +365,20 @@ const deleteService = async (req, res) => {
 
     await service.deleteOne();
 
-    res.json({ msg: 'Service deleted successfully' });
+    return res.json({ msg: 'Service deleted successfully' });
   } catch (err) {
     console.error('Delete service error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
-
-// ==================== CATEGORY CONTROLLERS ====================
 
 // Create or update category
 const createCategory = async (req, res) => {
   try {
+    if (!Category) {
+      return res.status(500).json({ msg: 'Category model not initialized' });
+    }
+
     const {
       name,
       slug,
@@ -351,43 +404,27 @@ const createCategory = async (req, res) => {
       if (heroTitle) category.heroTitle = heroTitle;
       if (heroDescription) category.heroDescription = heroDescription;
       if (heroGradient) {
-        if (typeof heroGradient === 'string') {
-          try {
-            category.heroGradient = JSON.parse(heroGradient);
-          } catch (e) {
-            category.heroGradient = { from: '#dc2626', to: '#b91c1c' };
-          }
-        } else {
-          category.heroGradient = heroGradient;
+        try {
+          category.heroGradient = typeof heroGradient === 'string' ? JSON.parse(heroGradient) : heroGradient;
+        } catch (e) {
+          category.heroGradient = { from: '#dc2626', to: '#b91c1c' };
         }
       }
       if (features) {
-        if (typeof features === 'string') {
-          try {
-            category.features = JSON.parse(features);
-          } catch (e) {
-            category.features = [];
-          }
-        } else {
-          category.features = features;
+        try {
+          category.features = typeof features === 'string' ? JSON.parse(features) : features;
+        } catch (e) {
+          category.features = [];
         }
       }
       if (brands) {
-        if (typeof brands === 'string') {
-          category.brands = brands.split(',').map(b => b.trim());
-        } else {
-          category.brands = brands;
-        }
+        category.brands = typeof brands === 'string' ? brands.split(',').map(b => b.trim()) : brands;
       }
       if (testimonials) {
-        if (typeof testimonials === 'string') {
-          try {
-            category.testimonials = JSON.parse(testimonials);
-          } catch (e) {
-            category.testimonials = [];
-          }
-        } else {
-          category.testimonials = testimonials;
+        try {
+          category.testimonials = typeof testimonials === 'string' ? JSON.parse(testimonials) : testimonials;
+        } catch (e) {
+          category.testimonials = [];
         }
       }
       if (isActive !== undefined) category.isActive = isActive === 'true' || isActive === true;
@@ -420,7 +457,6 @@ const createCategory = async (req, res) => {
       }
 
       try {
-        // Delete old image if exists
         if (category.image && category.image.publicId) {
           await cloudinary.uploader.destroy(category.image.publicId);
         }
@@ -444,32 +480,40 @@ const createCategory = async (req, res) => {
 
     await category.save();
 
-    res.json({
+    return res.json({
       msg: category.isNew ? 'Category created successfully' : 'Category updated successfully',
       category,
     });
   } catch (err) {
     console.error('Create/update category error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Get all categories
 const getCategories = async (req, res) => {
   try {
+    if (!Category) {
+      return res.status(500).json({ msg: 'Category model not initialized' });
+    }
+
     const categories = await Category.find({ isActive: true })
       .sort({ order: 1, name: 1 });
 
-    res.json(categories);
+    return res.json(categories);
   } catch (err) {
     console.error('Get categories error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 
 // Get category by slug
 const getCategoryBySlug = async (req, res) => {
   try {
+    if (!Category || !Service) {
+      return res.status(500).json({ msg: 'Models not initialized' });
+    }
+
     const category = await Category.findOne({ 
       slug: req.params.slug,
       isActive: true 
@@ -485,13 +529,13 @@ const getCategoryBySlug = async (req, res) => {
       isAvailable: true 
     }).sort({ isPopular: -1, createdAt: -1 });
 
-    res.json({
+    return res.json({
       category,
       services,
     });
   } catch (err) {
     console.error('Get category error:', err);
-    res.status(500).json({ msg: 'Server error' });
+    return res.status(500).json({ msg: 'Server error' });
   }
 };
 

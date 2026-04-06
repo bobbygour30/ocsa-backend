@@ -15,46 +15,39 @@ const { protect, admin } = require('../middleware/auth');
 const uploadMultiple = require('../middleware/uploadMultiple');
 const uploadSingle = require('../middleware/uploadSingle');
 
-// Public routes
-router.get('/services', getServices);
-router.get('/services/:id', getServiceById);
+// ==================== TEST ROUTE ====================
+router.get('/test', (req, res) => {
+  res.json({ msg: 'Service routes are working!' });
+});
+
+// ==================== PUBLIC ROUTES ====================
+// Get all services (with filters)
+router.get('/', getServices);
+
+// Get single service by ID
+router.get('/:id', getServiceById);
+
+// Get services by category
 router.get('/category/:category', getServicesByCategory);
+
+// Get all categories
 router.get('/categories', getCategories);
+
+// Get category by slug
 router.get('/categories/:slug', getCategoryBySlug);
 
-// Admin only routes
-router.post(
-  '/services',
-  protect,
-  admin,
-  uploadMultiple.array('images', 5),
-  createService
-);
+// ==================== ADMIN ONLY ROUTES ====================
+// Create new service (admin only)
+router.post('/', protect, admin, uploadMultiple.array('images', 5), createService);
 
-router.put(
-  '/services/:id',
-  protect,
-  admin,
-  uploadMultiple.array('images', 5),
-  updateService
-);
+// Update service (admin only)
+router.put('/:id', protect, admin, uploadMultiple.array('images', 5), updateService);
 
-router.delete('/services/:id', protect, admin, deleteService);
+// Delete service (admin only)
+router.delete('/:id', protect, admin, deleteService);
 
-router.post(
-  '/categories',
-  protect,
-  admin,
-  uploadSingle.single('image'),
-  createCategory
-);
-
-router.put(
-  '/categories/:slug',
-  protect,
-  admin,
-  uploadSingle.single('image'),
-  createCategory
-);
+// Create or update category (admin only)
+router.post('/categories', protect, admin, uploadSingle.single('image'), createCategory);
+router.put('/categories/:slug', protect, admin, uploadSingle.single('image'), createCategory);
 
 module.exports = router;

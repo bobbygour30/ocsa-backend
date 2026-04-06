@@ -20,8 +20,8 @@ const CategorySchema = new mongoose.Schema({
   heroTitle: String,
   heroDescription: String,
   heroGradient: {
-    from: String,
-    to: String,
+    from: { type: String, default: '#dc2626' },
+    to: { type: String, default: '#b91c1c' },
   },
   features: [{
     icon: String,
@@ -58,4 +58,6 @@ CategorySchema.pre('save', function(next) {
   next();
 });
 
-module.exports = mongoose.model('Category', CategorySchema);
+const Category = mongoose.models.Category || mongoose.model('Category', CategorySchema);
+
+module.exports = Category;
